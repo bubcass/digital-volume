@@ -1,0 +1,88 @@
+<!-- index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Official Report | Digital Volume</title>
+
+  <!-- Cache-bust for Safari while developing: bump the v= whenever you change CSS/JS -->
+  <link rel="stylesheet" href="css/styles.css?v=dev1" />
+</head>
+
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <article class="edition" aria-label="Digital reading edition">
+    <div class="edition__sheet">
+
+      <!-- Running header strings for paged media (Vivliostyle) -->
+      <div class="running-strings" aria-hidden="true">
+        <span id="runningChamber"></span>
+        <span id="runningDate"></span>
+      </div>
+
+      <!-- Legacy hook for existing JS (safe to keep, hidden) -->
+      <div id="kicker" style="display:none"></div>
+
+      <!-- Top header: Volume — Harp — Date (PDF-like) -->
+      <header class="tophead" aria-label="Document header">
+        <div class="tophead__volno" id="volno"></div>
+
+        <img
+          class="tophead__harp"
+          src="assets/harp.png"
+          alt=""
+          aria-hidden="true"
+        />
+
+        <div class="tophead__date" id="pubdate"></div>
+      </header>
+
+      <!-- Title block (bilingual masthead etc.) -->
+      <header id="top" class="masthead" aria-label="Edition header">
+        <div class="titlepage" aria-label="Title page">
+          <div class="titlepage__titles">
+            <div class="titlepage__line smallcaps" id="title_ga"></div>
+            <div class="titlepage__line smallcaps" id="title_en"></div>
+
+            <div class="titlepage__house" id="house"></div>
+
+            <div class="titlepage__status">
+              <span class="smallcaps" id="status_ga"></span>
+              <span class="status__em" id="status_ga_em"></span>
+              <br />
+              <span id="status_en"></span>
+              <span class="status__em" id="status_en_em"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ✅ Local date loader (won’t affect print) -->
+        <div class="loader" aria-label="Load another sitting date">
+          <label class="loader__label" for="datePicker">Select a date</label>
+          <div class="loader__row">
+            <input id="datePicker" class="loader__input" type="date" />
+            <button id="loadBtn" class="loader__btn" type="button">Go</button>
+          </div>
+          <p id="loadHint" class="loader__hint" aria-live="polite"></p>
+        </div>
+      </header>
+
+      <!-- ✅ TOC container (filled by app.js) -->
+      <nav id="toc" class="toc" aria-label="Table of contents"></nav>
+
+      <main id="main" class="reader" tabindex="-1"></main>
+
+      <footer class="footer">
+        <div class="footer__rule"></div>
+        <p class="footer__text">Debates Office | Digital Volume No. 1036</p>
+      </footer>
+
+    </div>
+  </article>
+
+  <!-- Cache-bust for Safari while developing -->
+  <script type="module" src="js/app.js?v=dev1"></script>
+</body>
+</html>

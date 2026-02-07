@@ -1,0 +1,15 @@
+{
+  "name": "2026-01-20_debates_edition",
+  "version": "1.0.0",
+  "description": "This PoC renders an Akoma Ntoso XML debate record into a **print-matched** HTML page that looks very close to the current PDF styling (Times New Roman, conservative hierarchy), while remaining accessible and easy to print.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@vivliostyle/cli": "^10.3.0"
+  }
+}
