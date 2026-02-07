@@ -7,3 +7,6 @@ __pycache__/
 
 # dependencies
 node_modules/
+
+# Local XML cache (not needed for Pages)
+data/xml/
