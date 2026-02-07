@@ -1,26 +1,15 @@
 // app.js — Edition Mode PoC
-// (HF-first loader + reliable date picker navigation + source diagnostics)
-//
-// HF URL pattern confirmed by you:
-// https://huggingface.co/datasets/bubcass/oireachtas-debates/raw/main/1919/1919-10-27_mul%40.xml
-//
-// ✅ Date picker (Option 1):
-//   “Load” navigates to ?date=YYYY-MM-DD (full reload). Most reliable.
+// (reverted working version + WAI-ARIA switch wiring only)
+// ✅ Toggle labels: Web ↔ Digital Volume
+// ✅ Web mode redirects to oireachtas.ie debate view (by date)
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
-const DEFAULT_DATE = "2025-12-04";
+const DEFAULT_DATE = "2025-12-18";
 
-// -----------------------------
-// Data source config
-// -----------------------------
-
-// Set to true to FORCE Hugging Face only (best for proving it’s not coming from 127).
-// Set to false if you want local fallback when HF is missing a file.
-const HF_ONLY = true;
-
-// Your dataset repo (public)
+// Hugging Face dataset settings (raw files)
 const HF_DATASET = "bubcass/oireachtas-debates";
 const HF_BRANCH = "main";
+const DEFAULT_MODE = "edition"; // (web|edition) — edition == Digital Volume
 
 /** Accepts ?date=YYYY-MM-DD */
 function getDateFromQuery(fallback = DEFAULT_DATE) {
@@ -34,91 +23,43 @@ function yearFromISO(dateISO) {
   return m ? m[1] : "";
 }
 
-// ✅ Correct HF URL builder (matches your example exactly)
-function hfXmlUrlForDate(dateISO) {
+/**
+ * HF raw URL by year/date:
+ * https://huggingface.co/datasets/<repo>/raw/<branch>/<YYYY>/<YYYY-MM-DD>_mul%40.xml
+ */
+function hfXmlPathForDate(dateISO) {
   const y = yearFromISO(dateISO);
-  if (!y) return "";
-
-  // File name on HF: YYYY-MM-DD_mul@.xml → @ must be URL-encoded as %40
-  const filename = `${dateISO}_mul%40.xml`;
-
-  return `https://huggingface.co/datasets/${HF_DATASET}/raw/${HF_BRANCH}/${y}/${filename}`;
+  const file = `${dateISO}_mul%40.xml`; // %40 = '@' in filename
+  return `https://huggingface.co/datasets/${HF_DATASET}/raw/${HF_BRANCH}/${y}/${file}`;
 }
 
-// Optional local legacy path (what you were seeing as 127)
-// Only used when HF_ONLY === false
+/** Back-compat local fallback (optional) */
 function legacyLocalXmlPathForDate(dateISO) {
   return `data/xml/${dateISO}.xml`;
 }
 
 async function fetchTextOrThrow(url) {
-  console.log("%c[edition] FETCH", "color:#7F6C2E;font-weight:700", url);
-
   const res = await fetch(url, { cache: "no-store" });
-
-  console.log(
-    "%c[edition] RESP",
-    "color:#444;font-weight:700",
-    res.status,
-    res.statusText,
-    "←",
-    res.url
-  );
-
   if (!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
   return await res.text();
 }
 
 async function loadXMLFromLocalDate(dateISO) {
   const tried = [];
+  const candidates = [hfXmlPathForDate(dateISO), legacyLocalXmlPathForDate(dateISO)];
+
   let lastErr = null;
-
-  const hfUrl = hfXmlUrlForDate(dateISO);
-  if (!hfUrl) throw new Error(`Invalid date: ${dateISO}`);
-
-  const tryOne = async (url, label) => {
-    tried.push(url);
-
-    const xmlText = await fetchTextOrThrow(url);
-    const doc = new DOMParser().parseFromString(xmlText, "application/xml");
-    const pe = doc.getElementsByTagName("parsererror")[0];
-    if (pe) throw new Error(`XML parse error in: ${url}`);
-
-    console.log(
-      "%c[edition] SOURCE OK → " + label,
-      "background:#7F6C2E;color:#fff;padding:2px 8px;border-radius:10px;font-weight:700",
-      url
-    );
-
-    // If you have a hint element in the UI
-    const hint = document.getElementById("loadHint");
-    if (hint) hint.textContent = ``;
-
-    return doc;
-  };
-
-  // 1) Hugging Face
-  try {
-    return await tryOne(hfUrl, "Hugging Face");
-  } catch (e) {
-    lastErr = e;
-    console.warn("[edition] HF failed:", e);
-
-    if (HF_ONLY) {
-      throw new Error(
-        `Failed to load XML for ${dateISO} (HF-only mode).\n\nTried:\n- ${hfUrl}\n\nLast error: ${String(
-          e
-        )}`
-      );
+  for (const path of candidates) {
+    tried.push(path);
+    try {
+      const xmlText = await fetchTextOrThrow(path);
+      const doc = new DOMParser().parseFromString(xmlText, "application/xml");
+      const pe = doc.getElementsByTagName("parsererror")[0];
+      if (pe) throw new Error(`XML parse error in: ${path}`);
+      return doc;
+    } catch (e) {
+      lastErr = e;
     }
-  }
-
-  // 2) Local fallback (optional)
-  const localUrl = legacyLocalXmlPathForDate(dateISO);
-  try {
-    return await tryOne(localUrl, "Local (127)");
-  } catch (e) {
-    lastErr = e;
   }
 
   throw new Error(
@@ -128,16 +69,63 @@ async function loadXMLFromLocalDate(dateISO) {
   );
 }
 
-// -----------------------------
-// State
-// -----------------------------
-
+// Set at init from XML <docDate date="YYYY-MM-DD">
 let DOC_DATE_ISO = "";
+
+/** Historical column map: target eId -> column label (e.g., "Col. 2850") */
 let COL_BY_TARGET = new Map();
 
-// -----------------------------
-// Helpers
-// -----------------------------
+/* -----------------------------
+   DEMO mode switch (no renderer change yet)
+------------------------------ */
+
+function getModeFromQueryOrStorage(fallback = DEFAULT_MODE) {
+  const u = new URL(window.location.href);
+  const q = (u.searchParams.get("mode") || "").toLowerCase();
+  const s = (localStorage.getItem("dv_mode") || "").toLowerCase();
+  const mode = (q || s || fallback || "").toLowerCase();
+  return mode === "web" ? "web" : "edition";
+}
+
+function setMode(mode) {
+  const m = mode === "web" ? "web" : "edition";
+  localStorage.setItem("dv_mode", m);
+
+  const u = new URL(window.location.href);
+  u.searchParams.set("mode", m);
+  history.replaceState(null, "", u.toString());
+
+  document.documentElement.setAttribute("data-mode", m);
+}
+
+function modeTitle(mode) {
+  return mode === "edition"
+    ? "Switch to Web view on oireachtas.ie"
+    : "Switch to Digital Volume view";
+}
+
+/* -----------------------------
+   Web view URL (current oireachtas.ie debate view)
+------------------------------ */
+
+function webDebateUrlForDate(dateISO) {
+  // Matches: https://www.oireachtas.ie/en/debates/debate/dail/2025-12-03/
+  // If you later add Seanad support, swap "dail" based on chamber.
+  return `https://www.oireachtas.ie/en/debates/debate/dail/${dateISO}/`;
+}
+
+function redirectToWebViewIfNeeded(dateISO) {
+  const mode = getModeFromQueryOrStorage(DEFAULT_MODE);
+  if (mode !== "web") return false;
+
+  // Use replace() to avoid trapping users in a back/forward loop
+  window.location.replace(webDebateUrlForDate(dateISO));
+  return true;
+}
+
+/* -----------------------------
+   Utilities
+------------------------------ */
 
 function text(el) {
   return (el?.textContent || "").replace(/\s+/g, " ").trim();
@@ -216,9 +204,9 @@ function getDocDateText(doc) {
   return text(docDate || dateBlock);
 }
 
-// -----------------------------
-// Chamber extraction + Irish-correct casing
-// -----------------------------
+/* -----------------------------
+   Chamber extraction + Irish-correct casing
+------------------------------ */
 
 function getDocProponent(doc) {
   const preface = q1(doc, "preface");
@@ -264,70 +252,198 @@ function getEditionDateText() {
   return (pub.textContent || "").replace(/\s+/g, " ").trim();
 }
 
-// -----------------------------
-// Date picker UI (Option 1: navigate)
-// -----------------------------
+/* -----------------------------
+   Date picker wiring + DEMO switch wiring
+------------------------------ */
 
-function ensureDatePickerUI() {
-  const existingInput = document.getElementById("datePicker");
-  const existingBtn = document.getElementById("loadBtn");
-  if (existingInput && existingBtn) return { input: existingInput, button: existingBtn };
+function injectModeToggleStylesOnce() {
+  if (document.getElementById("dvModeToggleStyles")) return;
 
-  // If your HTML has the loader already (as you showed), you should have both IDs.
-  // If not, we inject a minimal bar above the TOC.
-  const sheet = document.querySelector(".edition__sheet") || document.body;
-  const toc = document.getElementById("toc");
+  const css = `
+/* --- Demo switch placement + styling (kept in app.js to avoid touching your CSS file) --- */
 
-  const wrap = el("div", { class: "datebar" }, []);
-  const label = el("label", { class: "datebar__label", for: "datePicker", text: "Choose a date" });
-  const input = el("input", { id: "datePicker", type: "date", "aria-label": "Select date" });
-  const btn = el("button", { id: "loadBtn", type: "button", text: "Go" });
+/* Right cell wraps date (baseline stays correct). Toggle floats above date without affecting layout. */
+.tophead__datewrap{
+  justify-self: end;
+  text-align: right;
+  position: relative;
+}
 
-  wrap.style.display = "flex";
-  wrap.style.gap = "10px";
-  wrap.style.alignItems = "baseline";
-  wrap.style.margin = "0 auto 16px";
-  wrap.style.maxWidth = "var(--measure, 78ch)";
+/* Float the toggle above the date, aligned right */
+.modeToggle{
+  position: absolute;
+  right: 0;
+  top: -2.35rem; /* adjust if you want a touch more/less lift */
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--sans, system-ui);
+  font-size: .82rem;
+  color: rgba(0,0,0,.70);
+  user-select: none;
+  white-space: nowrap;
+}
 
-  wrap.appendChild(label);
-  wrap.appendChild(input);
-  wrap.appendChild(btn);
+/* Keep date behaving as before */
+.tophead__datewrap .tophead__date{
+  display: block;
+}
 
-  if (toc && toc.parentNode) toc.parentNode.insertBefore(wrap, toc);
-  else sheet.insertBefore(wrap, sheet.firstChild);
+/* Switch visuals */
+.modeToggle__label{
+  letter-spacing: .02em;
+}
 
-  return { input, button: btn };
+.modeToggle__switch{
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.modeToggle__track{
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.22);
+  background: rgba(0,0,0,.06);
+  position: relative;
+  vertical-align: middle;
+  transition: background 140ms ease-in-out, border-color 140ms ease-in-out;
+}
+
+.modeToggle__thumb{
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.22);
+  transform: translateY(-50%);
+  transition: left 140ms ease-in-out;
+}
+
+/* aria-checked=true => Digital Volume ON */
+.modeToggle__switch[aria-checked="true"] .modeToggle__track{
+  background: rgba(0,0,0,.14);
+  border-color: rgba(0,0,0,.30);
+}
+.modeToggle__switch[aria-checked="true"] .modeToggle__thumb{
+  left: 23px;
+}
+
+.modeToggle__switch:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 999px;
+}
+
+/* Responsive: avoid overlap when the top header stacks */
+@media (max-width: 640px){
+  .tophead__datewrap{
+    justify-self: center;
+    text-align: center;
+  }
+  .modeToggle{
+    position: static;
+    margin-bottom: 10px;
+    justify-content: center;
+  }
+}
+
+/* Hide switch in print */
+@media print{
+  .modeToggle{ display: none !important; }
+}
+`;
+  const style = document.createElement("style");
+  style.id = "dvModeToggleStyles";
+  style.textContent = css;
+  document.head.appendChild(style);
 }
 
 function wireDatePickerUI() {
-  const { input, button } = ensureDatePickerUI();
-  if (!input || !button) return;
+  injectModeToggleStylesOnce();
 
-  input.value = getDateFromQuery(DEFAULT_DATE);
+  const input = document.getElementById("datePicker");
+  const button = document.getElementById("loadBtn");
+  const modeSwitch = document.getElementById("modeSwitch");
+
+  if (input) input.value = getDateFromQuery(DEFAULT_DATE);
+
+  const paintMode = () => {
+    const m = getModeFromQueryOrStorage(DEFAULT_MODE);
+    setMode(m);
+
+    if (modeSwitch) {
+      // aria-checked=true means Digital Volume is active
+      modeSwitch.setAttribute("aria-checked", String(m === "edition"));
+      modeSwitch.title = modeTitle(m);
+    }
+  };
+
+  paintMode();
+
+  if (modeSwitch) {
+    const toggle = () => {
+      const cur = getModeFromQueryOrStorage(DEFAULT_MODE);
+      const next = cur === "edition" ? "web" : "edition";
+
+      // If switching to web, redirect to oireachtas.ie for the currently selected date
+      if (next === "web") {
+        const dateISO = (input?.value || "").trim() || getDateFromQuery(DEFAULT_DATE);
+        setMode("web");
+        paintMode();
+        window.location.href = webDebateUrlForDate(dateISO);
+        return;
+      }
+
+      // Otherwise back to Digital Volume (this app)
+      setMode("edition");
+      paintMode();
+    };
+
+    modeSwitch.addEventListener("click", toggle);
+    modeSwitch.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle();
+      }
+    });
+  }
 
   const go = () => {
-    const v = (input.value || "").trim();
+    const v = (input?.value || "").trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
 
     const u = new URL(window.location.href);
     u.searchParams.set("date", v);
 
-    // Full reload so init() runs from scratch
+    // preserve mode (if someone has set web, this will redirect on init)
+    u.searchParams.set("mode", getModeFromQueryOrStorage(DEFAULT_MODE));
+
     window.location.href = u.toString();
   };
 
-  button.addEventListener("click", go);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      go();
-    }
-  });
+  if (button) button.addEventListener("click", go);
+  if (input) {
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        go();
+      }
+    });
+  }
 }
 
-// -----------------------------
-// Inline rendering
-// -----------------------------
+/* -----------------------------
+   Inline rendering
+------------------------------ */
 
 function inlineNodes(xmlEl) {
   if (!xmlEl) return [];
@@ -426,9 +542,9 @@ function inlineNodes(xmlEl) {
   return spaced;
 }
 
-// -----------------------------
-// Title page fill
-// -----------------------------
+/* -----------------------------
+   Title page fill
+------------------------------ */
 
 function fillTitlePage(doc) {
   const preface = q1(doc, "preface");
@@ -481,9 +597,9 @@ function fillTitlePage(doc) {
   if (kicker) kicker.textContent = "";
 }
 
-// -----------------------------
-// Historical columns (≤2012)
-// -----------------------------
+/* -----------------------------
+   Historical columns (≤2012)
+------------------------------ */
 
 function getDocYearISO() {
   const m = (DOC_DATE_ISO || "").match(/^(\d{4})-/);
@@ -522,9 +638,9 @@ function makeColMarker(label, targetId) {
   ]);
 }
 
-// -----------------------------
-// ToC + Column jump UI
-// -----------------------------
+/* -----------------------------
+   ToC + Column jump UI
+------------------------------ */
 
 function scrollToId(id) {
   if (!id) return;
@@ -580,7 +696,11 @@ function buildTOCFromDOM() {
 
   if (COL_BY_TARGET.size > 0) {
     const colWrap = el("div", { class: "col-jump" }, []);
-    const label = el("label", { class: "col-jump__label", for: "colJumpInput", text: "Go to column" });
+    const label = el("label", {
+      class: "col-jump__label",
+      for: "colJumpInput",
+      text: "Go to column",
+    });
     const input = el("input", {
       class: "col-jump__input",
       id: "colJumpInput",
@@ -650,9 +770,9 @@ function buildTOCFromDOM() {
   tocHost.appendChild(panel);
 }
 
-// -----------------------------
-// debateBody rendering (RECURSIVE + divisions)
-// -----------------------------
+/* -----------------------------
+   debateBody rendering (RECURSIVE + divisions)
+------------------------------ */
 
 function renderBody(doc, pageMap = []) {
   const main = document.getElementById("main");
@@ -705,14 +825,14 @@ function renderBody(doc, pageMap = []) {
     const tLower = t.toLowerCase();
 
     const isDivisionLine = /^the\s+d[áa]il\s+divided:/i.test(t);
+
     const isSectionCaps = /^SECTION\s+\d+\b/.test(t) && t === t.toUpperCase();
     if (isSectionCaps) return null;
 
     const isInterruptions = /^\(\s*interruptions?\s*\)\s*\.?\s*$/i.test(t);
 
     const isPrayer =
-      /^paidir agus machnamh\s*\.?\s*$/i.test(t) ||
-      /^prayer and reflection\s*\.?\s*$/i.test(t);
+      /^paidir agus machnamh\s*\.?\s*$/i.test(t) || /^prayer and reflection\s*\.?\s*$/i.test(t);
 
     const isChairFormula =
       tLower.startsWith("chuaigh an cathaoirleach") ||
@@ -782,7 +902,9 @@ function renderBody(doc, pageMap = []) {
       const content = inlineNodes(pEl);
       if (!content.length) return;
 
-      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${
+        extraClass ? ` ${extraClass}` : ""
+      }`;
 
       if (idx === 0 && speakerName) {
         speechWrap.appendChild(
@@ -829,7 +951,9 @@ function renderBody(doc, pageMap = []) {
 
     const getVoteList = (name) => {
       const sec = Array.from(divisionSec.children).find(
-        (n) => n.localName === "debateSection" && (n.getAttribute("name") || "").toLowerCase() === name
+        (n) =>
+          n.localName === "debateSection" &&
+          (n.getAttribute("name") || "").toLowerCase() === name
       );
       if (!sec) return [];
       const ps = Array.from(sec.children).filter((n) => n.localName === "p");
@@ -885,7 +1009,11 @@ function renderBody(doc, pageMap = []) {
 
     if (name === "division") return renderDivision(sec);
 
-    const sectionEl = el("section", { class: "section", id: eId || undefined, "data-section": name }, []);
+    const sectionEl = el(
+      "section",
+      { class: "section", id: eId || undefined, "data-section": name },
+      []
+    );
 
     const cm = maybeColMarker(eId);
     if (cm) sectionEl.appendChild(cm);
@@ -935,14 +1063,12 @@ function renderBody(doc, pageMap = []) {
   }
 
   const topSections = Array.from(debateBody.children).filter((n) => n.localName === "debateSection");
-  for (const sec of topSections) {
-    main.appendChild(renderDebateSection(sec, 2));
-  }
+  for (const sec of topSections) main.appendChild(renderDebateSection(sec, 2));
 }
 
-// -----------------------------
-// Citation UX (speech-level)
-// -----------------------------
+/* -----------------------------
+   Citation UX (speech-level)
+------------------------------ */
 
 function formatAccessedDate(d = new Date()) {
   return d.toLocaleDateString("en-IE", { day: "2-digit", month: "long", year: "numeric" });
@@ -1049,9 +1175,9 @@ function enableSpeechLinkCopy() {
   }
 }
 
-// -----------------------------
-// Paged media running strings (Vivliostyle)
-// -----------------------------
+/* -----------------------------
+   Paged media running strings (Vivliostyle)
+------------------------------ */
 
 function setRunningStrings({ chamber, dateText }) {
   const chamberEl = document.getElementById("runningChamber");
@@ -1061,15 +1187,22 @@ function setRunningStrings({ chamber, dateText }) {
   if (dateEl) dateEl.textContent = dateText || "";
 }
 
-// -----------------------------
-// Init
-// -----------------------------
+/* -----------------------------
+   Init
+------------------------------ */
 
 (async function init() {
   try {
     wireDatePickerUI();
 
     const dateISO = getDateFromQuery(DEFAULT_DATE);
+
+    // ✅ If user is in web mode, jump to oireachtas.ie immediately
+    if (redirectToWebViewIfNeeded(dateISO)) return;
+
+    const mode = getModeFromQueryOrStorage(DEFAULT_MODE);
+    setMode(mode);
+
     const xml = await loadXMLFromLocalDate(dateISO);
 
     DOC_DATE_ISO = getDocDateISO(xml) || "";
@@ -1099,6 +1232,12 @@ function setRunningStrings({ chamber, dateText }) {
     if (main) {
       main.innerHTML = "";
       main.appendChild(el("p", { text: String(err) }));
+
+      const dateISO = getDateFromQuery(DEFAULT_DATE);
+      const mode = getModeFromQueryOrStorage(DEFAULT_MODE);
+      main.appendChild(
+        el("pre", { class: "debug" }, [`mode=${mode}\n`, `date=${dateISO}\n`, `hf=${hfXmlPathForDate(dateISO)}\n`])
+      );
     }
   }
 })();

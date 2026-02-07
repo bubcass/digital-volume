@@ -25,7 +25,7 @@
       <!-- Legacy hook for existing JS (safe to keep, hidden) -->
       <div id="kicker" style="display:none"></div>
 
-      <!-- Top header: Volume — Harp — Date (PDF-like) -->
+      <!-- Top header: Volume — Harp — Date (toggle floats above date) -->
       <header class="tophead" aria-label="Document header">
         <div class="tophead__volno" id="volno"></div>
 
@@ -36,7 +36,32 @@
           aria-hidden="true"
         />
 
-        <div class="tophead__date" id="pubdate"></div>
+        <!-- Right column: date stays as the baseline element; toggle is positioned above -->
+        <div class="tophead__datewrap">
+          <div class="modeToggle" aria-label="View toggle">
+            <span class="modeToggle__label modeToggle__label--web">Web</span>
+
+            <!-- WAI-ARIA switch (demo/redirect) -->
+            <button
+              id="modeSwitch"
+              class="modeToggle__switch"
+              type="button"
+              role="switch"
+              aria-checked="true"
+              aria-label="Toggle Digital Volume view"
+              title="Switch view"
+            >
+              <span class="modeToggle__track" aria-hidden="true">
+                <span class="modeToggle__thumb" aria-hidden="true"></span>
+              </span>
+            </button>
+
+            <span class="modeToggle__label modeToggle__label--dv">Digital Volume</span>
+          </div>
+
+          <!-- IMPORTANT: this element remains the baseline-aligned date element -->
+          <div class="tophead__date" id="pubdate"></div>
+        </div>
       </header>
 
       <!-- Title block (bilingual masthead etc.) -->
@@ -83,6 +108,6 @@
   </article>
 
   <!-- Cache-bust for Safari while developing -->
-  <script type="module" src="js/app.js?v=dev1"></script>
+  <script type="module" src="js/app.js?v=dev2"></script>
 </body>
 </html>

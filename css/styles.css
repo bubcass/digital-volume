@@ -35,6 +35,15 @@
   --copied-text: rgba(0,0,0,.75);
 
   --print-hf-size: 13pt;
+
+  /* Switch (ARIA) */
+  --switch-h: 26px;
+  --switch-w: 48px;
+  --switch-pad: 2px;
+  --switch-track: rgba(0,0,0,.22);
+  --switch-track-on: rgba(0,0,0,.60);
+  --switch-thumb: #fff;
+  --switch-thumb-border: rgba(0,0,0,.22);
 }
 
 html{ font-size: var(--base); }
@@ -63,6 +72,11 @@ a:focus-visible{
   outline: 3px solid currentColor;
   outline-offset: 3px;
   border-radius: 6px;
+}
+
+/* Reduce motion for people who request it */
+@media (prefers-reduced-motion: reduce){
+  *{ scroll-behavior: auto !important; }
 }
 
 /* Skip link */
@@ -97,6 +111,7 @@ a:focus-visible{
 }
 
 .edition__sheet{
+  position: relative;
   background: var(--page);
   border: 1px solid var(--hairline);
   box-shadow: 0 2px 10px rgba(0,0,0,.10);
@@ -152,9 +167,7 @@ a:focus-visible{
     justify-self: center;
     text-align: center;
   }
-  .tophead__harp{
-    transform: none;
-  }
+  .tophead__harp{ transform: none; }
 }
 
 /* -----------------------------------------
@@ -199,6 +212,7 @@ a:focus-visible{
 
 /* -----------------------------------------
    Loader UI (screen only)
+   (this is your in-title "Select a date" block)
 ----------------------------------------- */
 
 .loader{
@@ -246,8 +260,13 @@ a:focus-visible{
   cursor: pointer;
 }
 
-.loader__btn:hover{
-  border-color: rgba(0,0,0,.35);
+.loader__btn:hover{ border-color: rgba(0,0,0,.35); }
+
+.loader__btn:focus-visible,
+.loader__input:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 .loader__hint{
@@ -255,6 +274,172 @@ a:focus-visible{
   font-family: var(--sans);
   font-size: .82rem;
   color: rgba(0,0,0,.65);
+}
+
+/* -----------------------------------------
+   Date picker bar (screen)
+   Print-ish, understated, aligns with title page
+----------------------------------------- */
+
+.datebar{
+  max-width: var(--measure);
+  margin: 0 auto 18px;
+  padding: 10px 0 14px;
+  border-bottom: 1px solid var(--hairline);
+
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.datebar__label{
+  font-family: var(--sans);
+  font-variant: small-caps;
+  letter-spacing: .08em;
+  font-weight: 700;
+  color: rgba(0,0,0,.75);
+  white-space: nowrap;
+}
+
+.datebar input[type="date"]{
+  font: inherit;
+  font-family: var(--serif);
+  font-size: 1rem;
+  line-height: 1.2;
+
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid rgba(0,0,0,.22);
+  border-radius: 0;
+
+  padding: 4px 2px 3px;
+  color: var(--ink);
+  min-width: 13.5rem;
+}
+
+.datebar input[type="date"]:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.datebar button{
+  font: inherit;
+  font-family: var(--sans);
+  font-weight: 700;
+  letter-spacing: .04em;
+
+  background: transparent;
+  border: 1px solid rgba(0,0,0,.22);
+  border-radius: 2px;
+
+  padding: 6px 10px;
+  cursor: pointer;
+  color: rgba(0,0,0,.80);
+}
+
+.datebar button:hover{ border-color: rgba(0,0,0,.40); }
+
+.datebar button:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+/* Slightly nicer on narrow screens */
+@media (max-width: 640px){
+  .datebar{ gap: 10px; }
+  .datebar input[type="date"]{
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* -----------------------------------------
+   ARIA Switch (WAI-ARIA APG style)
+   Expected markup:
+   <button id="modeSwitch" role="switch" aria-checked="false" class="switch">
+     <span class="switch__label">Web</span>
+     <span class="switch__track"><span class="switch__thumb"></span></span>
+     <span class="switch__label">Edition</span>
+   </button>
+----------------------------------------- */
+
+.switch{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-left: auto; /* pushes switch to the right if there's space */
+  cursor: pointer;
+
+  font-family: var(--sans);
+  color: rgba(0,0,0,.78);
+}
+
+.switch:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 6px;
+  border-radius: 10px;
+}
+
+/* labels */
+.switch__label{
+  font-size: .86rem;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  opacity: .75;
+}
+
+/* track */
+.switch__track{
+  position: relative;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  border-radius: 999px;
+  border: 1px solid var(--switch-track);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--switch-pad);
+}
+
+/* thumb */
+.switch__thumb{
+  width: calc(var(--switch-h) - (var(--switch-pad) * 2) - 2px);
+  height: calc(var(--switch-h) - (var(--switch-pad) * 2) - 2px);
+  border-radius: 999px;
+  background: var(--switch-thumb);
+  border: 1px solid var(--switch-thumb-border);
+  transform: translateX(0);
+  transition: transform 160ms ease-in-out, border-color 160ms ease-in-out;
+}
+
+/* ON state (aria-checked="true") */
+.switch[aria-checked="true"] .switch__track{
+  border-color: var(--switch-track-on);
+}
+
+.switch[aria-checked="true"] .switch__thumb{
+  transform: translateX(calc(var(--switch-w) - var(--switch-h)));
+  border-color: rgba(0,0,0,.35);
+}
+
+/* emphasis: make the active side label stronger */
+.switch[aria-checked="false"] .switch__label:first-child{ opacity: 1; font-weight: 700; }
+.switch[aria-checked="false"] .switch__label:last-child{ opacity: .55; font-weight: 400; }
+
+.switch[aria-checked="true"] .switch__label:first-child{ opacity: .55; font-weight: 400; }
+.switch[aria-checked="true"] .switch__label:last-child{ opacity: 1; font-weight: 700; }
+
+/* keep the switch from squashing too hard on tiny screens */
+@media (max-width: 520px){
+  .switch{ margin-left: 0; }
 }
 
 /* -----------------------------------------
@@ -275,20 +460,13 @@ a:focus-visible{
   margin: 1.7rem 0 1.05rem;
 }
 
-.summary{
-  margin: .7rem 0 1.0rem;
-}
-
+.summary{ margin: .7rem 0 1.0rem; }
 .summary.center{ text-align: center; }
-
 .summary--italic{ font-style: italic; }
-
 em{ font-style: italic; }
 
 /* Centres only the "The Dáil divided: Tá, …" line */
-.summary--divisionline{
-  text-align: center;
-}
+.summary--divisionline{ text-align: center; }
 
 /* -----------------------------------------
    Historical Columns (≤2012) markers
@@ -327,7 +505,6 @@ em{ font-style: italic; }
   flex-wrap: wrap;
 }
 
-/* The toggle IS the title: "CONTENTS ▸" */
 .toc__toggle{
   font: inherit;
   font-family: var(--sans);
@@ -351,12 +528,10 @@ em{ font-style: italic; }
 .toc__toggle:focus-visible{
   outline: 3px solid currentColor;
   outline-offset: 4px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 
-.toc__panel{
-  margin-top: .8rem;
-}
+.toc__panel{ margin-top: .8rem; }
 
 .toc__skip{
   display: inline-block;
@@ -442,18 +617,7 @@ em{ font-style: italic; }
   cursor: pointer;
 }
 
-.col-jump__btn:hover{
-  border-color: rgba(0,0,0,.35);
-}
-
-/* PRINT: always show the TOC panel, hide toggle */
-@media print{
-  .toc__toggle{ display: none !important; }
-  .toc__panel[hidden]{ display: block !important; }
-
-  /* Hide loader in print */
-  .loader{ display: none !important; }
-}
+.col-jump__btn:hover{ border-color: rgba(0,0,0,.35); }
 
 /* -----------------------------------------
    Speech blocks + citation UI
@@ -599,6 +763,40 @@ em{ font-style: italic; }
 }
 
 /* -----------------------------------------
+   Division table (Tá / Níl / Staon)
+----------------------------------------- */
+
+.division__table{
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  margin: 1rem 0;
+  font-size: 0.95rem;
+}
+
+.division__table th,
+.division__table td{
+  vertical-align: top;
+  padding: 0.25rem 0.5rem;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.division__table thead th{
+  border-bottom: 1px solid #000;
+  font-weight: 700;
+}
+
+.division__table tbody td{
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.division__table th + th,
+.division__table td + td{
+  border-left: 1px solid rgba(0,0,0,0.12);
+}
+
+/* -----------------------------------------
    Print (Vivliostyle / paged media)
 ----------------------------------------- */
 
@@ -638,7 +836,15 @@ em{ font-style: italic; }
   .speech[id][data-speaker]{ cursor: auto; }
   .speech[id][data-speaker]:hover{ outline: none !important; }
 
+  /* Hide the web-only controls */
+  .loader{ display: none !important; }
+  .datebar{ display: none !important; }
+
   a{ text-decoration: none; }
+
+  /* Always show the TOC panel, hide toggle label */
+  .toc__toggle{ display: none !important; }
+  .toc__panel[hidden]{ display: block !important; }
 }
 
 /* Page size + margins + margin boxes */
@@ -664,126 +870,4 @@ em{ font-style: italic; }
     content: string(docdate);
     font-size: var(--print-hf-size);
   }
-}
-
-/* -----------------------------------------
-   Division table (Tá / Níl / Staon)
------------------------------------------ */
-
-.division__table{
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: collapse;
-  margin: 1rem 0;
-  font-size: 0.95rem;
-}
-
-.division__table th,
-.division__table td{
-  vertical-align: top;
-  padding: 0.25rem 0.5rem;
-  overflow-wrap: anywhere;
-  word-break: normal;
-}
-
-.division__table thead th{
-  border-bottom: 1px solid #000;
-  font-weight: 700;
-}
-
-.division__table tbody td{
-  border-bottom: 1px solid rgba(0,0,0,0.1);
-}
-
-.division__table th + th,
-.division__table td + td{
-  border-left: 1px solid rgba(0,0,0,0.12);
-}
-/* -----------------------------------------
-   Date picker bar (screen)
-   Print-ish, understated, aligns with title page
------------------------------------------ */
-
-.datebar{
-  max-width: var(--measure);
-  margin: 0 auto 18px;
-  padding: 10px 0 14px;
-  border-bottom: 1px solid var(--hairline);
-
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.datebar__label{
-  font-family: var(--sans);
-  font-variant: small-caps;
-  letter-spacing: .08em;
-  font-weight: 700;
-  color: rgba(0,0,0,.75);
-  white-space: nowrap;
-}
-
-.datebar input[type="date"]{
-  font: inherit;
-  font-family: var(--serif);
-  font-size: 1rem;
-  line-height: 1.2;
-
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid rgba(0,0,0,.22);
-  border-radius: 0;
-
-  padding: 4px 2px 3px;
-  color: var(--ink);
-  min-width: 13.5rem; /* keeps it stable */
-}
-
-.datebar input[type="date"]:focus-visible{
-  outline: 3px solid currentColor;
-  outline-offset: 4px;
-  border-radius: 4px;
-}
-
-.datebar button{
-  font: inherit;
-  font-family: var(--sans);
-  font-weight: 700;
-  letter-spacing: .04em;
-
-  background: transparent;
-  border: 1px solid rgba(0,0,0,.22);
-  border-radius: 2px;
-
-  padding: 6px 10px;
-  cursor: pointer;
-  color: rgba(0,0,0,.80);
-}
-
-.datebar button:hover{
-  border-color: rgba(0,0,0,.40);
-}
-
-.datebar button:focus-visible{
-  outline: 3px solid currentColor;
-  outline-offset: 4px;
-  border-radius: 4px;
-}
-
-/* Make it sit nicely on narrow screens */
-@media (max-width: 640px){
-  .datebar{
-    gap: 10px;
-  }
-  .datebar input[type="date"]{
-    flex: 1;
-    min-width: 0;
-  }
-}
-
-/* Print: hide the date picker bar */
-@media print{
-  .datebar{ display: none !important; }
 }
