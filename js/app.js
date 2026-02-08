@@ -7,7 +7,7 @@
 // ✅ Web mode: redirects to oireachtas.ie debates page for selected date
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
-const DEFAULT_DATE = "2025-02-05";
+const DEFAULT_DATE = "2026-02-05";
 
 // Hugging Face dataset settings (raw files)
 const HF_DATASET = "bubcass/oireachtas-debates";
