@@ -12,7 +12,27 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # ✅ Robust checkout with retry (avoids transient GitHub 500s during fetch)
+      - name: Checkout (retry fetch on 500s)
+        uses: nick-invision/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 6
+          retry_on: error
+          command: |
+            set -euo pipefail
+            echo "Repo: ${GITHUB_REPOSITORY}"
+            echo "Workspace: ${GITHUB_WORKSPACE}"
+
+            # Start clean
+            rm -rf "${GITHUB_WORKSPACE:?}/"*
+
+            # Manual checkout
+            git init
+            git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+            git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin \
+              "+refs/heads/main:refs/remotes/origin/main"
+            git checkout -B main refs/remotes/origin/main
 
       - uses: actions/setup-node@v4
         with:
@@ -23,6 +43,7 @@ jobs:
 
       - name: Commit & push if changed
         run: |
+          set -euo pipefail
           git status --porcelain
           if [ -z "$(git status --porcelain)" ]; then
             echo "No changes."
