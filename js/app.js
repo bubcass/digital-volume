@@ -9,7 +9,7 @@
 //    - Go/Enter navigates (value already corrected if needed)
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
-const DEFAULT_DATE = "2025-12-18";
+const DEFAULT_DATE = "2026-02-05";
 
 const PROXY_BASE = "https://digital-volume-proxy.cassdavid.workers.dev/akn";
 
