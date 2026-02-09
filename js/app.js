@@ -1,22 +1,17 @@
-// app.js — Edition Mode PoC (CORS-safe via Cloudflare Worker proxy)
+// app.js — Digital Volume PoC (CORS-safe via Cloudflare Worker proxy)
 // ✅ Uses available dates (data/available-dates.json) to constrain the date picker
 // ✅ Defaults to mode=edition (Digital Volume)
 // ✅ Fetches XML via your Worker proxy, which then fetches data.oireachtas.ie
-// ✅ Web/Digital Volume toggle is ONLY the top-right switch in index.html (no injected duplicate)
-// ✅ If user picks a date with no XML, auto-loads nearest available date (better UX)
+// ✅ IMPORTANT: does NOT inject a second toggle — uses the existing #modeSwitch in index.html only.
+// ✅ Date UX:
+//    - do NOT auto-correct while user types
+//    - DO show hint + auto-correct ONLY when a date is actually picked/committed (change event)
+//    - Go/Enter navigates (value already corrected if needed)
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
-const DEFAULT_DATE = "2026-02-05";
+const DEFAULT_DATE = "2025-12-18";
 
-// Cloudflare Worker proxy (CORS bypass)
 const PROXY_BASE = "https://digital-volume-proxy.cassdavid.workers.dev/akn";
-
-// Default mode: edition == Digital Volume
-const DEFAULT_MODE = "edition"; // (web|edition)
-
-/* -----------------------------
-   Oireachtas canonical + proxied URLs
------------------------------- */
 
 function oirCanonicalXmlUrl(dateISO) {
   return `https://data.oireachtas.ie/akn/ie/debateRecord/dail/${dateISO}/debate/mul@/main.xml`;
@@ -27,18 +22,14 @@ function proxiedOirXmlUrl(dateISO) {
   return `${PROXY_BASE}?url=${encodeURIComponent(target)}`;
 }
 
-/* -----------------------------
-   Query helpers
------------------------------- */
+const DEFAULT_MODE = "edition"; // (web|edition)
 
-/** Accepts ?date=YYYY-MM-DD */
 function getDateFromQuery(fallback = DEFAULT_DATE) {
   const u = new URL(window.location.href);
   const d = u.searchParams.get("date");
   return /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : fallback;
 }
 
-/** DEMO mode (web|edition) with default=edition */
 function getModeFromQueryOrStorage(fallback = DEFAULT_MODE) {
   const u = new URL(window.location.href);
   const q = (u.searchParams.get("mode") || "").toLowerCase();
@@ -60,8 +51,8 @@ function setMode(mode) {
 
 function modeTitle(mode) {
   return mode === "edition"
-    ? "Switch to Web view"
-    : "Switch to Digital Volume view";
+    ? "Demo: switch to Web view"
+    : "Demo: switch to Digital Volume view";
 }
 
 /* -----------------------------
@@ -135,8 +126,8 @@ async function loadPageMap() {
    Available dates (for date picker)
 ------------------------------ */
 
-let AVAILABLE_DATES = null; // Set<string> once loaded
-let AVAILABLE_DATES_SORTED = null; // string[] cached sorted
+let AVAILABLE_DATES = null; // Set<string>
+let AVAILABLE_SORTED = null; // string[] cached sorted ISO
 
 async function loadAvailableDates() {
   try {
@@ -145,22 +136,22 @@ async function loadAvailableDates() {
     const data = await res.json();
     const arr = Array.isArray(data) ? data : Array.isArray(data?.dates) ? data.dates : null;
     if (!arr) return null;
+
     const set = new Set(arr.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)));
     if (!set.size) return null;
-    AVAILABLE_DATES_SORTED = Array.from(set).sort();
+
+    AVAILABLE_SORTED = Array.from(set).sort();
     return set;
   } catch {
     return null;
   }
 }
 
-function pickNearestAvailable(dateISO) {
-  if (!AVAILABLE_DATES || !AVAILABLE_DATES.size || !AVAILABLE_DATES_SORTED?.length) return dateISO;
+function nearestAvailableOnOrBefore(dateISO) {
+  if (!AVAILABLE_DATES || !AVAILABLE_SORTED?.length) return dateISO;
   if (AVAILABLE_DATES.has(dateISO)) return dateISO;
 
-  const sorted = AVAILABLE_DATES_SORTED;
-
-  // Binary search: first index >= dateISO
+  const sorted = AVAILABLE_SORTED;
   let lo = 0,
     hi = sorted.length;
   while (lo < hi) {
@@ -168,27 +159,22 @@ function pickNearestAvailable(dateISO) {
     if (sorted[mid] < dateISO) lo = mid + 1;
     else hi = mid;
   }
-
-  // Prefer nearest earlier if possible, else earliest
   const idx = Math.max(0, lo - 1);
-  return sorted[idx] || dateISO;
+  return sorted[idx] || sorted[0] || dateISO;
 }
 
 function setDatePickerConstraints(inputEl) {
-  if (!inputEl || !AVAILABLE_DATES || !AVAILABLE_DATES.size || !AVAILABLE_DATES_SORTED?.length) return;
+  if (!inputEl || !AVAILABLE_SORTED?.length) return;
 
-  const min = AVAILABLE_DATES_SORTED[0];
-  const max = AVAILABLE_DATES_SORTED[AVAILABLE_DATES_SORTED.length - 1];
-  inputEl.min = min;
-  inputEl.max = max;
+  inputEl.min = AVAILABLE_SORTED[0];
+  inputEl.max = AVAILABLE_SORTED[AVAILABLE_SORTED.length - 1];
 
-  // Datalist suggestions (some browsers ignore for type=date, harmless otherwise)
   const existing = document.getElementById("availableDatesList");
   if (existing) existing.remove();
 
   const dl = document.createElement("datalist");
   dl.id = "availableDatesList";
-  for (const d of AVAILABLE_DATES_SORTED) {
+  for (const d of AVAILABLE_SORTED) {
     const opt = document.createElement("option");
     opt.value = d;
     dl.appendChild(opt);
@@ -198,29 +184,138 @@ function setDatePickerConstraints(inputEl) {
 }
 
 /* -----------------------------
-   Date picker wiring + top-right switch wiring
-   (IMPORTANT: switch exists in index.html; we do NOT inject another)
+   Toggle styling (kept in app.js — your earlier working approach)
+------------------------------ */
+
+function injectModeToggleStylesOnce() {
+  if (document.getElementById("dvModeToggleStyles")) return;
+
+  const css = `
+/* --- Toggle: use existing markup in index.html (no DOM injection) --- */
+
+/* Right column: date stays on the grid baseline; toggle is absolutely positioned above it */
+.tophead__datewrap{
+  justify-self: end;
+  position: relative;
+  display: block;         /* IMPORTANT: don't use column flex here */
+  text-align: right;
+
+  /* ✅ Single knob: adjust this to move the toggle up/down */
+  --toggle-rise: 66px;
+}
+
+/* Date remains the baseline element */
+.tophead__date{
+  display: block;
+  text-align: right;
+}
+
+/* Toggle floats above, without pushing the date down */
+.modeToggle{
+  position: absolute;
+  right: 0;
+  top: calc(-1 * var(--toggle-rise));  /* ✅ this moves it UP */
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+
+  font-family: var(--sans, system-ui);
+  font-size: .82rem;
+  color: rgba(0,0,0,.70);
+  user-select: none;
+  white-space: nowrap;
+
+  /* remove any flow nudges */
+  margin: 0;
+}
+
+.modeToggle__switch{
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.modeToggle__track{
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,.22);
+  background: rgba(0,0,0,.06);
+  position: relative;
+  vertical-align: middle;
+  transition: background 140ms ease-in-out, border-color 140ms ease-in-out;
+}
+
+.modeToggle__thumb{
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.22);
+  transform: translateY(-50%);
+  transition: left 140ms ease-in-out;
+}
+
+/* aria-checked=true => Digital Volume ON */
+.modeToggle__switch[aria-checked="true"] .modeToggle__track{
+  background: rgba(0,0,0,.14);
+  border-color: rgba(0,0,0,.30);
+}
+.modeToggle__switch[aria-checked="true"] .modeToggle__thumb{
+  left: 23px;
+}
+
+.modeToggle__switch:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+  border-radius: 999px;
+}
+
+@media print{
+  .modeToggle{ display:none !important; }
+}
+`;
+
+  const style = document.createElement("style");
+  style.id = "dvModeToggleStyles";
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+/* -----------------------------
+   Date picker + mode wiring (restored + improved UX)
 ------------------------------ */
 
 function wireDatePickerAndModeUI() {
+  injectModeToggleStylesOnce();
+
   const input = document.getElementById("datePicker");
   const button = document.getElementById("loadBtn");
   const hint = document.getElementById("loadHint");
-  const modeSwitch = document.getElementById("modeSwitch");
+  const modeSwitch = document.getElementById("modeSwitch"); // existing in index.html
 
-  if (AVAILABLE_DATES && input) setDatePickerConstraints(input);
+  if (input && AVAILABLE_SORTED?.length) setDatePickerConstraints(input);
 
-  // Choose date: query -> nearest available (if list exists)
+  // Initial value: snap ONCE on load so we don't land on a dead date
   const requested = getDateFromQuery(DEFAULT_DATE);
-  const safeDate = pickNearestAvailable(requested);
-  if (input) input.value = safeDate;
+  const safeInitial =
+    AVAILABLE_DATES && AVAILABLE_DATES.size ? nearestAvailableOnOrBefore(requested) : requested;
+  if (input) input.value = safeInitial;
 
   const paintMode = () => {
     const m = getModeFromQueryOrStorage(DEFAULT_MODE);
     setMode(m);
 
     if (modeSwitch) {
-      // aria-checked=true means Digital Volume is active
+      // IMPORTANT: your injected CSS keys off aria-checked on #modeSwitch
       modeSwitch.setAttribute("aria-checked", String(m === "edition"));
       modeSwitch.title = modeTitle(m);
     }
@@ -232,17 +327,20 @@ function wireDatePickerAndModeUI() {
     const toggle = () => {
       const cur = getModeFromQueryOrStorage(DEFAULT_MODE);
       const next = cur === "edition" ? "web" : "edition";
-      setMode(next);
-      paintMode();
 
-      // Behaviour: if switching to web, jump to canonical oireachtas page for chosen date
+      const d = (input?.value || safeInitial || DEFAULT_DATE).trim();
+
       if (next === "web") {
-        const d = (input?.value || safeDate || DEFAULT_DATE).trim();
+        setMode("web");
+        paintMode();
         if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
           window.location.href = `https://www.oireachtas.ie/en/debates/debate/dail/${d}/`;
         }
+        return;
       }
-      // Switching back to edition: stay here (already on edition)
+
+      setMode("edition");
+      paintMode();
     };
 
     modeSwitch.addEventListener("click", toggle);
@@ -254,29 +352,50 @@ function wireDatePickerAndModeUI() {
     });
   }
 
-  // ✅ Better UX: if user picks a date with no XML, auto-correct to nearest available
-  const go = () => {
-    const raw = (input?.value || "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
+  // While typing: do not auto-correct; just clear hints
+  if (input && hint) {
+    input.addEventListener("input", () => {
+      hint.textContent = "";
+    });
 
-    let v = raw;
+    // When a date is "picked/committed" (picker selection or blur-commit):
+    // if unavailable, show hint immediately AND auto-switch to nearest available
+    input.addEventListener("change", () => {
+      const raw = (input.value || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
 
-    if (AVAILABLE_DATES && AVAILABLE_DATES.size) {
-      if (!AVAILABLE_DATES.has(v)) {
-        const nearest = pickNearestAvailable(v);
-        if (input) input.value = nearest;
-
-        if (hint) hint.textContent = `No XML for ${raw}. Loading nearest available date: ${nearest}.`;
-        v = nearest;
+      if (AVAILABLE_DATES && AVAILABLE_DATES.size && !AVAILABLE_DATES.has(raw)) {
+        const nearest = nearestAvailableOnOrBefore(raw);
+        if (hint) hint.textContent = `No XML for ${raw}. Using nearest available: ${nearest}.`;
+        input.value = nearest; // ONLY here (change), not during typing
       } else {
         if (hint) hint.textContent = "";
       }
+    });
+  }
+
+  const go = () => {
+    if (!input) return;
+
+    const v = (input.value || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      if (hint) hint.textContent = "Enter a date in YYYY-MM-DD format.";
+      return;
+    }
+
+    // By now, if the user picked an unavailable date, change() already corrected it.
+    // But if AVAILABLE_DATES failed to load, we still allow navigation.
+    if (AVAILABLE_DATES && AVAILABLE_DATES.size && !AVAILABLE_DATES.has(v)) {
+      const nearest = nearestAvailableOnOrBefore(v);
+      if (hint) hint.textContent = `No XML for ${v}. Using nearest available: ${nearest}.`;
+      input.value = nearest;
     } else {
       if (hint) hint.textContent = "";
     }
 
+    const chosen = (input.value || "").trim();
     const u = new URL(window.location.href);
-    u.searchParams.set("date", v);
+    u.searchParams.set("date", chosen);
     u.searchParams.set("mode", getModeFromQueryOrStorage(DEFAULT_MODE));
     window.location.href = u.toString();
   };
@@ -287,21 +406,6 @@ function wireDatePickerAndModeUI() {
       if (e.key === "Enter") {
         e.preventDefault();
         go();
-      }
-    });
-
-    // Optional: auto-correct on change (keeps picker “valid” before clicking Go)
-    input.addEventListener("change", () => {
-      const raw = (input.value || "").trim();
-      if (!AVAILABLE_DATES || !AVAILABLE_DATES.size) return;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
-
-      if (!AVAILABLE_DATES.has(raw)) {
-        const nearest = pickNearestAvailable(raw);
-        input.value = nearest;
-        if (hint) hint.textContent = `No XML for ${raw}. Nearest available: ${nearest}.`;
-      } else {
-        if (hint) hint.textContent = "";
       }
     });
   }
@@ -412,16 +516,17 @@ function inlineNodes(xmlEl) {
    Title page fill
 ------------------------------ */
 
+let DOC_DATE_ISO = "";
+let COL_BY_TARGET = new Map();
+
 function getDocDateISO(doc) {
   const preface = q1(doc, "preface");
   if (!preface) return "";
-
   const blocks = qAll(preface, "block");
   const dateBlock =
     blocks.find((b) => b.getAttribute("name") === "date_en") ||
     blocks.find((b) => b.getAttribute("name") === "date_ga") ||
     null;
-
   if (!dateBlock) return "";
   const docDate = q1(dateBlock, "docDate");
   return docDate?.getAttribute("date") || "";
@@ -430,23 +535,15 @@ function getDocDateISO(doc) {
 function getDocDateText(doc) {
   const preface = q1(doc, "preface");
   if (!preface) return "";
-
   const blocks = qAll(preface, "block");
   const dateBlock =
     blocks.find((b) => b.getAttribute("name") === "date_en") ||
     blocks.find((b) => b.getAttribute("name") === "date_ga") ||
     null;
-
   if (!dateBlock) return "";
   const docDate = q1(dateBlock, "docDate");
   return text(docDate || dateBlock);
 }
-
-// Set at init from XML <docDate date="YYYY-MM-DD">
-let DOC_DATE_ISO = "";
-
-/** Historical column map: target eId -> column label (e.g., "Col. 2850") */
-let COL_BY_TARGET = new Map();
 
 function fillTitlePage(doc) {
   const preface = q1(doc, "preface");
@@ -635,7 +732,6 @@ function buildTOCFromDOM() {
 
   const panel = el("div", { class: "toc__panel", id: panelId }, []);
   panel.setAttribute("hidden", "");
-
   panel.appendChild(el("a", { class: "toc__skip", href: "#main", text: "Skip to debate ↓" }));
 
   if (COL_BY_TARGET.size > 0) {
@@ -715,8 +811,14 @@ function buildTOCFromDOM() {
 }
 
 /* -----------------------------
-   debateBody rendering (RECURSIVE + divisions)
+   debateBody rendering (your known-good renderer; unchanged)
 ------------------------------ */
+
+function spkNumFromId(spkId) {
+  if (!spkId) return "";
+  const m = String(spkId).match(/^spk_(\d+)$/);
+  return m ? m[1] : "";
+}
 
 function renderBody(doc, pageMap = []) {
   const main = document.getElementById("main");
@@ -840,7 +942,9 @@ function renderBody(doc, pageMap = []) {
       const content = inlineNodes(pEl);
       if (!content.length) return;
 
-      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${
+        extraClass ? ` ${extraClass}` : ""
+      }`;
 
       if (idx === 0 && speakerName) {
         speechWrap.appendChild(
@@ -1006,12 +1110,6 @@ function renderBody(doc, pageMap = []) {
    Citation UX (speech-level)
 ------------------------------ */
 
-function spkNumFromId(spkId) {
-  if (!spkId) return "";
-  const m = String(spkId).match(/^spk_(\d+)$/);
-  return m ? m[1] : "";
-}
-
 function formatAccessedDate(d = new Date()) {
   return d.toLocaleDateString("en-IE", { day: "2-digit", month: "long", year: "numeric" });
 }
@@ -1047,7 +1145,6 @@ function makeSpeechCitation({ speakerName, spkId }) {
 
   const spkNum = spkNumFromId(spkId) || "";
   const dateIso = DOC_DATE_ISO || "";
-
   const url = `https://www.oireachtas.ie/en/debates/debate/dail/${dateIso}/speech/${spkNum}/`;
   const author = normalizeSpeakerForCitation(speakerName);
 
@@ -1135,19 +1232,16 @@ function setRunningStrings({ chamber, dateText }) {
 
 (async function init() {
   try {
-    // Load available dates first (so picker can constrain and pick nearest safe date)
     AVAILABLE_DATES = await loadAvailableDates();
 
-    // Ensure default mode is edition (unless user explicitly set mode)
     const mode = getModeFromQueryOrStorage(DEFAULT_MODE);
     setMode(mode);
 
-    // Wire UI (date + switch)
     wireDatePickerAndModeUI();
 
-    // Use nearest safe date
     const requested = getDateFromQuery(DEFAULT_DATE);
-    const dateISO = pickNearestAvailable(requested);
+    const dateISO =
+      AVAILABLE_DATES && AVAILABLE_DATES.size ? nearestAvailableOnOrBefore(requested) : requested;
 
     const xml = await loadXMLFromDate(dateISO);
 
