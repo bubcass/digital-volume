@@ -4,7 +4,8 @@
 // ✅ Fetches XML via your Worker proxy, which then fetches data.oireachtas.ie
 // ✅ Toggle layout fix: toggle is positioned OUT OF FLOW so it cannot push the date down
 // ✅ Date picker UX: no auto-correct while typing; auto-correct on change (picker selection) and/or Go, with hint
-// ✅ NEW: DEFAULT_DATE is set dynamically to the latest date from data/available-dates.json
+// ✅ DEFAULT_DATE is set dynamically to the latest date from data/available-dates.json
+// ✅ Kebab menu: Save offline copy + Print + Share link (injected if missing)
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
 
@@ -170,7 +171,7 @@ async function loadAvailableDates() {
     const sorted = Array.from(set).sort(); // ISO => lexicographic sort works
     AVAILABLE_SORTED = sorted;
 
-    // ✅ NEW: dynamic default is latest available date
+    // Dynamic default is latest available date
     DEFAULT_DATE = sorted[sorted.length - 1] || FALLBACK_DATE;
 
     return set;
@@ -247,10 +248,9 @@ function injectModeToggleStylesOnce() {
 /* Toggle is OUT OF FLOW: it will not push the date */
 .modeToggle{
   position: absolute;
-  right: 0;
+  right: 32px; /* leave room for kebab button */
   top: 0;
-
-  transform: translateY(-105%); /* <-- NUDGE: adjust this value to move toggle up/down */
+  transform: translateY(-145%); /* adjust if you want it higher/lower */
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -320,6 +320,271 @@ function injectModeToggleStylesOnce() {
 }
 
 /* -----------------------------
+   Kebab menu (Print / Offline / Share link)
+   - Works if HTML exists; Share item is auto-injected if missing
+------------------------------ */
+
+function injectKebabStylesOnce() {
+  if (document.getElementById("dvKebabStyles")) return;
+
+  const css = `
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+
+.kebab{
+  position:absolute;
+  right:0;
+  top:0;
+  transform: translateY(-145%); /* keep aligned with toggle row */
+  z-index: 60;
+}
+
+.kebab__btn{
+  background:transparent;
+  border:0;
+  cursor:pointer;
+  padding:2px 6px;
+  border-radius:999px;
+  color: rgba(0,0,0,.75);
+  font: inherit;
+}
+
+.kebab__btn:hover{ background: rgba(0,0,0,.06); }
+
+.kebab__btn:focus-visible{
+  outline: 6px solid currentColor;
+  outline-offset: 7px;
+  border-radius: 999px;
+}
+
+.kebab__menu{
+  margin-top: 8px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.14);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.14);
+  padding: 6px;
+  min-width: 180px;
+}
+
+.kebab__item{
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 10px 10px;
+  cursor: pointer;
+  border-radius: 10px;
+  font-family: var(--sans, system-ui);
+  font-size: .92rem;
+}
+
+.kebab__item:hover{ background: rgba(0,0,0,.06); }
+
+@media print{ .kebab{ display:none !important; } }
+`;
+
+  const style = document.createElement("style");
+  style.id = "dvKebabStyles";
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+function closeKebab(menu, btn) {
+  if (!menu || !btn) return;
+  menu.hidden = true;
+  btn.setAttribute("aria-expanded", "false");
+}
+
+function openKebab(menu, btn) {
+  if (!menu || !btn) return;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function ensureShareMenuItem(menu) {
+  if (!menu) return null;
+
+  let shareBtn = document.getElementById("shareLinkBtn");
+  if (shareBtn) return shareBtn;
+
+  // Insert between Offline and Print (nice UX)
+  shareBtn = document.createElement("button");
+  shareBtn.id = "shareLinkBtn";
+  shareBtn.className = "kebab__item";
+  shareBtn.type = "button";
+  shareBtn.setAttribute("role", "menuitem");
+  shareBtn.textContent = "Share link";
+
+  const printBtn = document.getElementById("printBtn");
+  if (printBtn && printBtn.parentElement === menu) {
+    menu.insertBefore(shareBtn, printBtn);
+  } else {
+    menu.appendChild(shareBtn);
+  }
+
+  return shareBtn;
+}
+
+async function shareCurrentLink() {
+  const url = new URL(window.location.href);
+
+  // ensure a date exists in link
+  const d = getDateFromQuery(DEFAULT_DATE);
+  if (d) url.searchParams.set("date", d);
+
+  // ensure mode exists in link
+  url.searchParams.set("mode", getModeFromQueryOrStorage(DEFAULT_MODE));
+
+  const shareUrl = url.toString();
+
+  // Best case: native share sheet
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: document.title || "Digital Volume",
+        url: shareUrl,
+      });
+      return;
+    } catch {
+      // user cancelled; fall through to clipboard
+    }
+  }
+
+  // Clipboard fallback
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+    toastHint(`Link copied: ${shareUrl}`);
+  } catch {
+    // older fallback
+    const ta = document.createElement("textarea");
+    ta.value = shareUrl;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    toastHint(`Link copied: ${shareUrl}`);
+  }
+}
+
+let TOAST_TIMER = null;
+function toastHint(msg) {
+  const hint = document.getElementById("loadHint");
+  if (!hint) return;
+
+  hint.textContent = msg;
+  if (TOAST_TIMER) window.clearTimeout(TOAST_TIMER);
+  TOAST_TIMER = window.setTimeout(() => {
+    // don't nuke a user-visible validation message if they’re interacting;
+    // but this is fine for now.
+    hint.textContent = "";
+  }, 2200);
+}
+
+async function downloadOfflineSnapshot() {
+  const article = document.querySelector("article.edition");
+  if (!article) return;
+
+  // Try to pull CSS (works on same-origin; for GH Pages it's fine)
+  let cssText = "";
+  try {
+    const res = await fetch("css/styles.css", { cache: "no-store" });
+    cssText = res.ok ? await res.text() : "";
+  } catch {
+    cssText = "";
+  }
+
+  // Clone and remove web-only controls
+  const clone = article.cloneNode(true);
+  clone.querySelector(".loader")?.remove();
+  clone.querySelector(".modeToggle")?.remove();
+  clone.querySelector(".kebab")?.remove();
+  // Hide TOC toggle button if present; keep contents
+  clone.querySelector(".toc__toggle")?.remove();
+
+  const safeDate = getDateFromQuery(DEFAULT_DATE);
+  const filename = safeDate ? `digital-volume-${safeDate}.html` : "digital-volume-offline.html";
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Official Report | Digital Volume (Offline)</title>
+<style>${cssText}</style>
+</head>
+<body style="background:#fff">
+${clone.outerHTML}
+</body>
+</html>`;
+
+  const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function wireKebabMenu() {
+  const btn = document.getElementById("kebabBtn");
+  const menu = document.getElementById("kebabMenu");
+  if (!btn || !menu) return;
+
+  injectKebabStylesOnce();
+
+  // Ensure Share item exists
+  const shareBtn = ensureShareMenuItem(menu);
+
+  const offlineBtn = document.getElementById("offlineBtn");
+  const printBtn = document.getElementById("printBtn");
+
+  // Toggle open/close
+  btn.addEventListener("click", () => {
+    const isOpen = btn.getAttribute("aria-expanded") === "true";
+    if (isOpen) closeKebab(menu, btn);
+    else openKebab(menu, btn);
+  });
+
+  // Click outside closes
+  document.addEventListener("click", (e) => {
+    if (btn.contains(e.target) || menu.contains(e.target)) return;
+    closeKebab(menu, btn);
+  });
+
+  // Escape closes
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeKebab(menu, btn);
+  });
+
+  if (printBtn) {
+    printBtn.addEventListener("click", () => {
+      closeKebab(menu, btn);
+      window.print();
+    });
+  }
+
+  if (offlineBtn) {
+    offlineBtn.addEventListener("click", async () => {
+      closeKebab(menu, btn);
+      await downloadOfflineSnapshot();
+    });
+  }
+
+  if (shareBtn) {
+    shareBtn.addEventListener("click", async () => {
+      closeKebab(menu, btn);
+      await shareCurrentLink();
+    });
+  }
+}
+
+/* -----------------------------
    Mode switch wiring (uses existing #modeSwitch in index.html)
 ------------------------------ */
 
@@ -363,9 +628,6 @@ function wireModeSwitch({ inputEl }) {
 
 /* -----------------------------
    Date picker wiring (UX you described)
-   - No auto-correct while typing
-   - On change (picker selection): show hint + auto-correct the value to nearest available
-   - On Go/Enter: same correction + navigates
 ------------------------------ */
 
 function wireDatePickerUI() {
@@ -552,7 +814,6 @@ function inlineNodes(xmlEl) {
    Title page fill
 ------------------------------ */
 
-// Set at init from XML <docDate date="YYYY-MM-DD">
 let DOC_DATE_ISO = "";
 
 // Historical column map: target eId -> column label (e.g., "Col. 2850")
@@ -775,7 +1036,11 @@ function buildTOCFromDOM() {
 
   if (COL_BY_TARGET.size > 0) {
     const colWrap = el("div", { class: "col-jump" }, []);
-    const label = el("label", { class: "col-jump__label", for: "colJumpInput", text: "Go to column" });
+    const label = el("label", {
+      class: "col-jump__label",
+      for: "colJumpInput",
+      text: "Go to column",
+    });
     const input = el("input", {
       class: "col-jump__input",
       id: "colJumpInput",
@@ -971,7 +1236,9 @@ function renderBody(doc, pageMap = []) {
       const content = inlineNodes(pEl);
       if (!content.length) return;
 
-      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${extraClass ? ` ${extraClass}` : ""}`;
+      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${
+        extraClass ? ` ${extraClass}` : ""
+      }`;
 
       if (idx === 0 && speakerName) {
         speechWrap.appendChild(
@@ -1261,8 +1528,6 @@ function setRunningStrings({ chamber, dateText }) {
   try {
     // 1) Load available dates first (sets DEFAULT_DATE to latest)
     AVAILABLE_DATES = await loadAvailableDates();
-
-    // If available dates failed, keep fallback
     if (!DEFAULT_DATE) DEFAULT_DATE = FALLBACK_DATE;
 
     // 2) Default mode is edition unless user set otherwise
@@ -1271,6 +1536,9 @@ function setRunningStrings({ chamber, dateText }) {
 
     // 3) Wire UI (picker + switch + toggle CSS)
     wireDatePickerUI();
+
+    // 3b) Wire kebab menu (if present in HTML)
+    wireKebabMenu();
 
     // 4) For initial render: if URL date missing, load nearest available (latest by default)
     const requested = getDateFromQuery(DEFAULT_DATE);

@@ -6,7 +6,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Official Report | Digital Volume</title>
 
-  <!-- Cache-bust for Safari while developing: bump the v= whenever you change CSS/JS -->
   <link rel="stylesheet" href="css/styles.css?v=dev1" />
 </head>
 
@@ -16,32 +15,29 @@
   <article class="edition" aria-label="Digital reading edition">
     <div class="edition__sheet">
 
-      <!-- Running header strings for paged media (Vivliostyle) -->
       <div class="running-strings" aria-hidden="true">
         <span id="runningChamber"></span>
         <span id="runningDate"></span>
       </div>
 
-      <!-- Legacy hook for existing JS (safe to keep, hidden) -->
       <div id="kicker" style="display:none"></div>
 
-      <!-- Top header: Volume — Harp — Date (toggle floats above date) -->
       <header class="tophead" aria-label="Document header">
         <div class="tophead__volno" id="volno"></div>
 
         <img
           class="tophead__harp"
           src="assets/harp.png"
-          alt=""
+          alt="The Irish harp, symbol of the Oireachtas"
           aria-hidden="true"
         />
 
-        <!-- Right column: date stays as the baseline element; toggle is positioned above -->
         <div class="tophead__datewrap">
+
+          <!-- Mode Toggle -->
           <div class="modeToggle" aria-label="View toggle">
             <span class="modeToggle__label modeToggle__label--web">Web</span>
 
-            <!-- WAI-ARIA switch (demo/redirect) -->
             <button
               id="modeSwitch"
               class="modeToggle__switch"
@@ -59,14 +55,37 @@
             <span class="modeToggle__label modeToggle__label--dv">Digital Volume</span>
           </div>
 
-          <!-- IMPORTANT: this element remains the baseline-aligned date element -->
+          <!-- Kebab Menu -->
+          <div class="kebab" aria-label="Document options">
+            <button
+              id="kebabBtn"
+              class="kebab__btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="kebabMenu"
+              title="Options"
+            >
+              <span aria-hidden="true">⋯</span>
+              <span class="sr-only">Options</span>
+            </button>
+
+            <div id="kebabMenu" class="kebab__menu" role="menu" hidden>
+              <button id="offlineBtn" class="kebab__item" type="button" role="menuitem">
+                Save offline copy
+              </button>
+              <button id="printBtn" class="kebab__item" type="button" role="menuitem">
+                Print
+              </button>
+            </div>
+          </div>
+
           <div class="tophead__date" id="pubdate"></div>
         </div>
       </header>
 
-      <!-- Title block (bilingual masthead etc.) -->
       <header id="top" class="masthead" aria-label="Edition header">
-        <div class="titlepage" aria-label="Title page">
+        <div class="titlepage">
           <div class="titlepage__titles">
             <div class="titlepage__line smallcaps" id="title_ga"></div>
             <div class="titlepage__line smallcaps" id="title_en"></div>
@@ -83,8 +102,7 @@
           </div>
         </div>
 
-        <!-- ✅ Local date loader (won’t affect print) -->
-        <div class="loader" aria-label="Load another sitting date">
+        <div class="loader">
           <label class="loader__label" for="datePicker">Select a date</label>
           <div class="loader__row">
             <input id="datePicker" class="loader__input" type="date" />
@@ -94,8 +112,7 @@
         </div>
       </header>
 
-      <!-- ✅ TOC container (filled by app.js) -->
-      <nav id="toc" class="toc" aria-label="Table of contents"></nav>
+      <nav id="toc" class="toc"></nav>
 
       <main id="main" class="reader" tabindex="-1"></main>
 
@@ -107,7 +124,6 @@
     </div>
   </article>
 
-  <!-- Cache-bust for Safari while developing -->
   <script type="module" src="js/app.js?v=dev2"></script>
 </body>
 </html>
