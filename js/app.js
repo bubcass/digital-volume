@@ -4,12 +4,24 @@
 // ✅ Fetches XML via your Worker proxy, which then fetches data.oireachtas.ie
 // ✅ Toggle layout fix: toggle is positioned OUT OF FLOW so it cannot push the date down
 // ✅ Date picker UX: no auto-correct while typing; auto-correct on change (picker selection) and/or Go, with hint
+// ✅ NEW: DEFAULT_DATE is set dynamically to the latest date from data/available-dates.json
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
-const DEFAULT_DATE = "2026-02-05";
+
+// Hard fallback only (used if available-dates.json fails to load)
+const FALLBACK_DATE = "2026-02-05";
+// Runtime default (set after we load available-dates.json)
+let DEFAULT_DATE = FALLBACK_DATE;
 
 // Cloudflare Worker proxy (CORS bypass)
 const PROXY_BASE = "https://digital-volume-proxy.cassdavid.workers.dev/akn";
+
+// Default mode: edition == Digital Volume
+const DEFAULT_MODE = "edition"; // (web|edition)
+
+/* -----------------------------
+   URL builders
+------------------------------ */
 
 // Oireachtas canonical Akoma Ntoso endpoint pattern
 function oirCanonicalXmlUrl(dateISO) {
@@ -22,8 +34,9 @@ function proxiedOirXmlUrl(dateISO) {
   return `${PROXY_BASE}?url=${encodeURIComponent(target)}`;
 }
 
-// Default mode: edition == Digital Volume
-const DEFAULT_MODE = "edition"; // (web|edition)
+/* -----------------------------
+   Query + mode helpers
+------------------------------ */
 
 /** Accepts ?date=YYYY-MM-DD */
 function getDateFromQuery(fallback = DEFAULT_DATE) {
@@ -32,7 +45,7 @@ function getDateFromQuery(fallback = DEFAULT_DATE) {
   return /^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d : fallback;
 }
 
-/** DEMO mode (web|edition) with default=edition */
+/** mode (web|edition) with default=edition */
 function getModeFromQueryOrStorage(fallback = DEFAULT_MODE) {
   const u = new URL(window.location.href);
   const q = (u.searchParams.get("mode") || "").toLowerCase();
@@ -124,6 +137,10 @@ async function loadPageMap() {
   }
 }
 
+/* -----------------------------
+   Speech id helper (used in render + citations)
+------------------------------ */
+
 function spkNumFromId(spkId) {
   if (!spkId) return "";
   const m = String(spkId).match(/^spk_(\d+)$/);
@@ -135,20 +152,27 @@ function spkNumFromId(spkId) {
 ------------------------------ */
 
 let AVAILABLE_DATES = null; // Set<string> once loaded
-let AVAILABLE_SORTED = null; // cached sorted ISO dates
+let AVAILABLE_SORTED = null; // string[] cached sorted ISO dates
 
 async function loadAvailableDates() {
   try {
     const res = await fetch("data/available-dates.json", { cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
+
+    // Accept either ["YYYY-MM-DD", ...] or { dates: [...] }
     const arr = Array.isArray(data) ? data : Array.isArray(data?.dates) ? data.dates : null;
     if (!arr) return null;
 
     const set = new Set(arr.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)));
     if (!set.size) return null;
 
-    AVAILABLE_SORTED = Array.from(set).sort();
+    const sorted = Array.from(set).sort(); // ISO => lexicographic sort works
+    AVAILABLE_SORTED = sorted;
+
+    // ✅ NEW: dynamic default is latest available date
+    DEFAULT_DATE = sorted[sorted.length - 1] || FALLBACK_DATE;
+
     return set;
   } catch {
     return null;
@@ -161,8 +185,7 @@ function nearestAvailableOnOrBefore(dateISO) {
   if (AVAILABLE_DATES.has(dateISO)) return dateISO;
 
   const sorted = AVAILABLE_SORTED;
-
-  // binary search for insertion point: first >= dateISO
+  // binary search first >= dateISO
   let lo = 0,
     hi = sorted.length;
   while (lo < hi) {
@@ -170,7 +193,6 @@ function nearestAvailableOnOrBefore(dateISO) {
     if (sorted[mid] < dateISO) lo = mid + 1;
     else hi = mid;
   }
-
   // choose previous (earlier) if possible, else first
   const idx = Math.max(0, lo - 1);
   return sorted[idx] || dateISO;
@@ -198,34 +220,37 @@ function setDatePickerConstraints(inputEl) {
 }
 
 /* -----------------------------
-   Toggle styling + wiring
-   IMPORTANT: index.html already contains the toggle markup.
-   We ONLY:
-   - inject CSS that positions it OUT OF FLOW (absolute)
-   - wire events on the existing #modeSwitch button
+   Toggle styling (OUT OF FLOW)
+   - Uses existing markup in index.html:
+     .tophead__datewrap > .modeToggle + #pubdate
+   - We position .modeToggle absolutely so it cannot push the date down.
 ------------------------------ */
 
 function injectModeToggleStylesOnce() {
   if (document.getElementById("dvModeToggleStyles")) return;
 
   const css = `
-/* --- Toggle layout fix: do NOT let toggle affect date baseline --- */
+/* Right column wrapper */
 .tophead__datewrap{
-  position: relative;       /* anchor for absolutely-positioned toggle */
+  position: relative;
   justify-self: end;
-  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
 }
 
-/* Date stays in normal flow => stays aligned with volume across the row */
+/* Date stays baseline-aligned with volume */
 .tophead__date{
   text-align: right;
 }
 
-/* Toggle is absolutely positioned so it cannot push date down */
+/* Toggle is OUT OF FLOW: it will not push the date */
 .modeToggle{
   position: absolute;
   right: 0;
-  top: -36px;               /* <-- THIS is the "nudge up" value you can tweak */
+  top: 0;
+
+  transform: translateY(-105%); /* <-- NUDGE: adjust this value to move toggle up/down */
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -273,7 +298,6 @@ function injectModeToggleStylesOnce() {
   transition: left 140ms ease-in-out;
 }
 
-/* aria-checked=true => Digital Volume ON */
 .modeToggle__switch[aria-checked="true"] .modeToggle__track{
   background: rgba(0,0,0,.14);
   border-color: rgba(0,0,0,.30);
@@ -295,8 +319,12 @@ function injectModeToggleStylesOnce() {
   document.head.appendChild(style);
 }
 
+/* -----------------------------
+   Mode switch wiring (uses existing #modeSwitch in index.html)
+------------------------------ */
+
 function wireModeSwitch({ inputEl }) {
-  const modeSwitch = document.getElementById("modeSwitch"); // existing from index.html
+  const modeSwitch = document.getElementById("modeSwitch");
   if (!modeSwitch) return;
 
   const paint = () => {
@@ -334,14 +362,13 @@ function wireModeSwitch({ inputEl }) {
 }
 
 /* -----------------------------
-   Date picker UX (your preferred behaviour)
-   - "input": never correct while typing; just clear hint
-   - "change": if date not available, show message + auto-correct NOW (picker selection moment)
-   - "Go": if still unavailable (typed + didn't blur), show message + auto-correct, but DO NOT navigate
-            (user can press Go again once they see the corrected date)
+   Date picker wiring (UX you described)
+   - No auto-correct while typing
+   - On change (picker selection): show hint + auto-correct the value to nearest available
+   - On Go/Enter: same correction + navigates
 ------------------------------ */
 
-function wireDatePickerAndModeUI() {
+function wireDatePickerUI() {
   injectModeToggleStylesOnce();
 
   const input = document.getElementById("datePicker");
@@ -350,37 +377,32 @@ function wireDatePickerAndModeUI() {
 
   if (input && AVAILABLE_SORTED?.length) setDatePickerConstraints(input);
 
-  // Initial value (page load): query -> nearest available
+  // Initial value: query -> nearest available (so deep links still work)
   const requested = getDateFromQuery(DEFAULT_DATE);
   const initial =
     AVAILABLE_DATES && AVAILABLE_DATES.size ? nearestAvailableOnOrBefore(requested) : requested;
 
   if (input) input.value = initial;
 
-  // Typing: do not fight the user
+  // While typing, don't fight the user; clear hint only
   if (input && hint) {
     input.addEventListener("input", () => {
       hint.textContent = "";
     });
   }
 
-  // Picker selection / committed change: if invalid, correct immediately (this was your “best” UX)
-  if (input) {
+  // When user chooses via the picker UI (change event), correct + hint immediately
+  if (input && hint) {
     input.addEventListener("change", () => {
-      if (!AVAILABLE_DATES || !AVAILABLE_DATES.size) return;
-
       const raw = (input.value || "").trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return;
 
-      if (!AVAILABLE_DATES.has(raw)) {
+      if (AVAILABLE_DATES && AVAILABLE_DATES.size && !AVAILABLE_DATES.has(raw)) {
         const nearest = nearestAvailableOnOrBefore(raw);
         input.value = nearest;
-
-        if (hint) {
-          hint.textContent = `No XML for ${raw}. Nearest available is ${nearest}.`;
-        }
+        hint.textContent = `No XML for ${raw}. Nearest available: ${nearest}.`;
       } else {
-        if (hint) hint.textContent = "";
+        hint.textContent = "";
       }
     });
   }
@@ -394,21 +416,19 @@ function wireDatePickerAndModeUI() {
       return;
     }
 
-    // If we have an availability list and user typed an unavailable date,
-    // correct it *now* (and message), but do NOT navigate this click.
+    let chosen = raw;
+
     if (AVAILABLE_DATES && AVAILABLE_DATES.size && !AVAILABLE_DATES.has(raw)) {
       const nearest = nearestAvailableOnOrBefore(raw);
-      input.value = nearest;
-      if (hint) hint.textContent = `No XML for ${raw}. Nearest available is ${nearest}.`;
-      return;
+      chosen = nearest;
+      if (hint) hint.textContent = `No XML for ${raw}. Loading nearest available: ${nearest}.`;
+      input.value = chosen;
+    } else {
+      if (hint) hint.textContent = "";
     }
 
-    if (hint) hint.textContent = "";
-
     const u = new URL(window.location.href);
-    u.searchParams.set("date", raw);
-
-    // Preserve or default mode
+    u.searchParams.set("date", chosen);
     u.searchParams.set("mode", getModeFromQueryOrStorage(DEFAULT_MODE));
     window.location.href = u.toString();
   };
@@ -423,7 +443,7 @@ function wireDatePickerAndModeUI() {
     });
   }
 
-  // Wire existing toggle (no injection / no layout changes)
+  // Mode switch needs the input reference (so Web jump uses the chosen date)
   wireModeSwitch({ inputEl: input });
 }
 
@@ -751,16 +771,11 @@ function buildTOCFromDOM() {
 
   const panel = el("div", { class: "toc__panel", id: panelId }, []);
   panel.setAttribute("hidden", "");
-
   panel.appendChild(el("a", { class: "toc__skip", href: "#main", text: "Skip to debate ↓" }));
 
   if (COL_BY_TARGET.size > 0) {
     const colWrap = el("div", { class: "col-jump" }, []);
-    const label = el("label", {
-      class: "col-jump__label",
-      for: "colJumpInput",
-      text: "Go to column",
-    });
+    const label = el("label", { class: "col-jump__label", for: "colJumpInput", text: "Go to column" });
     const input = el("input", {
       class: "col-jump__input",
       id: "colJumpInput",
@@ -956,9 +971,7 @@ function renderBody(doc, pageMap = []) {
       const content = inlineNodes(pEl);
       if (!content.length) return;
 
-      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${
-        extraClass ? ` ${extraClass}` : ""
-      }`;
+      const cls = `speech__p${idx === 0 ? " speech__p--first" : ""}${extraClass ? ` ${extraClass}` : ""}`;
 
       if (idx === 0 && speakerName) {
         speechWrap.appendChild(
@@ -1246,17 +1259,20 @@ function setRunningStrings({ chamber, dateText }) {
 
 (async function init() {
   try {
-    // Load available dates first (so picker can constrain and pick nearest safe date)
+    // 1) Load available dates first (sets DEFAULT_DATE to latest)
     AVAILABLE_DATES = await loadAvailableDates();
 
-    // Ensure default mode is edition (unless user explicitly set mode)
+    // If available dates failed, keep fallback
+    if (!DEFAULT_DATE) DEFAULT_DATE = FALLBACK_DATE;
+
+    // 2) Default mode is edition unless user set otherwise
     const mode = getModeFromQueryOrStorage(DEFAULT_MODE);
     setMode(mode);
 
-    // Wire UI (date + switch) — IMPORTANT: no injection, uses existing switch in HTML
-    wireDatePickerAndModeUI();
+    // 3) Wire UI (picker + switch + toggle CSS)
+    wireDatePickerUI();
 
-    // Initial render: load nearest safe date for whatever is in the URL
+    // 4) For initial render: if URL date missing, load nearest available (latest by default)
     const requested = getDateFromQuery(DEFAULT_DATE);
     const dateISO =
       AVAILABLE_DATES && AVAILABLE_DATES.size ? nearestAvailableOnOrBefore(requested) : requested;
@@ -1298,6 +1314,7 @@ function setRunningStrings({ chamber, dateText }) {
         el("pre", { class: "debug" }, [
           `mode=${mode}\n`,
           `date=${dateISO}\n`,
+          `defaultDate=${DEFAULT_DATE}\n`,
           `proxy=${PROXY_BASE}\n`,
           `oir=${oirCanonicalXmlUrl(dateISO)}\n`,
           `availableDates=${AVAILABLE_DATES ? AVAILABLE_DATES.size : 0}\n`,
