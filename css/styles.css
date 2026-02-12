@@ -847,6 +847,56 @@ em{ font-style: italic; }
   .toc__panel[hidden]{ display: block !important; }
 }
 
+/* -----------------------------------------
+   Back to Top Button
+----------------------------------------- */
+
+.backtotop{
+  position: fixed;
+  right: 22px;
+  bottom: 28px;
+
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+
+  border: 1px solid rgba(0,0,0,.18);
+  background: #fff;
+  color: rgba(0,0,0,.75);
+
+  font-family: var(--sans);
+  font-size: 1.2rem;
+  font-weight: 700;
+
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.backtotop--visible{
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.backtotop:hover{
+  background: rgba(0,0,0,.06);
+}
+
+.backtotop:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
+/* Hide in print */
+@media print{
+  .backtotop{ display:none !important; }
+}
+
 /* Page size + margins + margin boxes */
 @page{
   margin: 25mm 20mm 25mm 20mm;

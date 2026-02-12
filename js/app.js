@@ -6,6 +6,7 @@
 // ✅ Date picker UX: no auto-correct while typing; auto-correct on change (picker selection) and/or Go, with hint
 // ✅ DEFAULT_DATE is set dynamically to the latest date from data/available-dates.json
 // ✅ Kebab menu: Save offline copy + Print + Share link (injected if missing)
+// ✅ NEW: Back-to-top button (injected; no HTML/CSS changes required)
 
 const NS = "http://docs.oasis-open.org/legaldocml/ns/akn/3.0/CSD13";
 
@@ -222,9 +223,6 @@ function setDatePickerConstraints(inputEl) {
 
 /* -----------------------------
    Toggle styling (OUT OF FLOW)
-   - Uses existing markup in index.html:
-     .tophead__datewrap > .modeToggle + #pubdate
-   - We position .modeToggle absolutely so it cannot push the date down.
 ------------------------------ */
 
 function injectModeToggleStylesOnce() {
@@ -321,7 +319,6 @@ function injectModeToggleStylesOnce() {
 
 /* -----------------------------
    Kebab menu (Print / Offline / Share link)
-   - Works if HTML exists; Share item is auto-injected if missing
 ------------------------------ */
 
 function injectKebabStylesOnce() {
@@ -344,8 +341,12 @@ function injectKebabStylesOnce() {
   cursor:pointer;
   padding:2px 6px;
   border-radius:999px;
-  color: rgba(0,0,0,.75);
-  font: inherit;
+
+  /* thicker feel */
+  color: rgba(0,0,0,.84);
+  font-weight: 700;
+  font-size: 1.02em;
+  line-height: 1;
 }
 
 .kebab__btn:hover{ background: rgba(0,0,0,.06); }
@@ -359,7 +360,7 @@ function injectKebabStylesOnce() {
 .kebab__menu{
   margin-top: 8px;
   background: #fff;
-  border: 1px solid rgba(0,0,0,.14);
+  border: 1.5px solid rgba(0,0,0,.14);
   border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0,0,0,.14);
   padding: 6px;
@@ -376,6 +377,10 @@ function injectKebabStylesOnce() {
   border-radius: 10px;
   font-family: var(--sans, system-ui);
   font-size: .92rem;
+
+  /* thicker feel */
+  font-weight: 600;
+  color: rgba(0,0,0,.86);
 }
 
 .kebab__item:hover{ background: rgba(0,0,0,.06); }
@@ -455,7 +460,6 @@ async function shareCurrentLink() {
     await navigator.clipboard.writeText(shareUrl);
     toastHint(`Link copied: ${shareUrl}`);
   } catch {
-    // older fallback
     const ta = document.createElement("textarea");
     ta.value = shareUrl;
     ta.setAttribute("readonly", "");
@@ -477,8 +481,6 @@ function toastHint(msg) {
   hint.textContent = msg;
   if (TOAST_TIMER) window.clearTimeout(TOAST_TIMER);
   TOAST_TIMER = window.setTimeout(() => {
-    // don't nuke a user-visible validation message if they’re interacting;
-    // but this is fine for now.
     hint.textContent = "";
   }, 2200);
 }
@@ -487,7 +489,6 @@ async function downloadOfflineSnapshot() {
   const article = document.querySelector("article.edition");
   if (!article) return;
 
-  // Try to pull CSS (works on same-origin; for GH Pages it's fine)
   let cssText = "";
   try {
     const res = await fetch("css/styles.css", { cache: "no-store" });
@@ -501,7 +502,6 @@ async function downloadOfflineSnapshot() {
   clone.querySelector(".loader")?.remove();
   clone.querySelector(".modeToggle")?.remove();
   clone.querySelector(".kebab")?.remove();
-  // Hide TOC toggle button if present; keep contents
   clone.querySelector(".toc__toggle")?.remove();
 
   const safeDate = getDateFromQuery(DEFAULT_DATE);
@@ -538,26 +538,21 @@ function wireKebabMenu() {
 
   injectKebabStylesOnce();
 
-  // Ensure Share item exists
   const shareBtn = ensureShareMenuItem(menu);
-
   const offlineBtn = document.getElementById("offlineBtn");
   const printBtn = document.getElementById("printBtn");
 
-  // Toggle open/close
   btn.addEventListener("click", () => {
     const isOpen = btn.getAttribute("aria-expanded") === "true";
     if (isOpen) closeKebab(menu, btn);
     else openKebab(menu, btn);
   });
 
-  // Click outside closes
   document.addEventListener("click", (e) => {
     if (btn.contains(e.target) || menu.contains(e.target)) return;
     closeKebab(menu, btn);
   });
 
-  // Escape closes
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeKebab(menu, btn);
   });
@@ -639,21 +634,18 @@ function wireDatePickerUI() {
 
   if (input && AVAILABLE_SORTED?.length) setDatePickerConstraints(input);
 
-  // Initial value: query -> nearest available (so deep links still work)
   const requested = getDateFromQuery(DEFAULT_DATE);
   const initial =
     AVAILABLE_DATES && AVAILABLE_DATES.size ? nearestAvailableOnOrBefore(requested) : requested;
 
   if (input) input.value = initial;
 
-  // While typing, don't fight the user; clear hint only
   if (input && hint) {
     input.addEventListener("input", () => {
       hint.textContent = "";
     });
   }
 
-  // When user chooses via the picker UI (change event), correct + hint immediately
   if (input && hint) {
     input.addEventListener("change", () => {
       const raw = (input.value || "").trim();
@@ -705,8 +697,98 @@ function wireDatePickerUI() {
     });
   }
 
-  // Mode switch needs the input reference (so Web jump uses the chosen date)
   wireModeSwitch({ inputEl: input });
+}
+
+/* -----------------------------
+   Back to Top (injected) — no HTML/CSS changes needed
+------------------------------ */
+
+function injectBackToTopStylesOnce() {
+  if (document.getElementById("dvBackToTopStyles")) return;
+
+  const css = `
+.backtotop{
+  position: fixed;
+  right: 22px;
+  bottom: 28px;
+
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+
+  border: 1px solid rgba(0,0,0,.18);
+  background: #fff;
+  color: rgba(0,0,0,.75);
+
+  font-family: var(--sans, system-ui);
+  font-size: 1.2rem;
+  font-weight: 700;
+
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,.12);
+
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.backtotop--visible{
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.backtotop:hover{
+  background: rgba(0,0,0,.06);
+}
+
+.backtotop:focus-visible{
+  outline: 3px solid currentColor;
+  outline-offset: 4px;
+}
+
+@media print{
+  .backtotop{ display:none !important; }
+}
+`;
+
+  const style = document.createElement("style");
+  style.id = "dvBackToTopStyles";
+  style.textContent = css;
+  document.head.appendChild(style);
+}
+
+function enableBackToTop() {
+  injectBackToTopStylesOnce();
+
+  // Avoid duplicate injection if init() runs again
+  if (document.querySelector(".backtotop")) return;
+
+  const btn = document.createElement("button");
+  btn.className = "backtotop";
+  btn.type = "button";
+  btn.setAttribute("aria-label", "Back to top");
+  btn.setAttribute("title", "Back to top");
+  btn.textContent = "↑";
+  document.body.appendChild(btn);
+
+  const showAfter = 600;
+
+  const updateVisibility = () => {
+    if (window.scrollY > showAfter) btn.classList.add("backtotop--visible");
+    else btn.classList.remove("backtotop--visible");
+  };
+
+  window.addEventListener("scroll", updateVisibility, { passive: true });
+  updateVisibility();
+
+  btn.addEventListener("click", () => {
+    // You already have id="top" on the masthead header
+    const top = document.getElementById("top") || document.body;
+    top.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 /* -----------------------------
@@ -1569,6 +1651,9 @@ function setRunningStrings({ chamber, dateText }) {
 
     buildTOCFromDOM();
     enableSpeechLinkCopy();
+
+    // ✅ NEW: Back-to-top button
+    enableBackToTop();
   } catch (err) {
     const main = document.getElementById("main");
     if (main) {
