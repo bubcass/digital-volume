@@ -25,7 +25,7 @@ function parseExisting() {
 // Minimal “best guess” pagination: if the API ever enforces pagination,
 // you can extend this (many Oireachtas endpoints include head.counts.skip/limit/total).
 async function fetchDebates(date_start, date_end) {
-  const url = `https://api.oireachtas.ie/v1/debates?date_start=${date_start}&date_end=${date_end}&limit=10000`;
+  const url = `https://api.oireachtas.ie/v1/debates?date_start=${date_start}&date_end=${date_end}&limit=1000`;
   const res = await fetch(url, { headers: { "accept": "application/json" } });
   if (!res.ok) throw new Error(`HTTP ${res.status} from debates API`);
   return await res.json();
