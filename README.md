@@ -36,3 +36,22 @@ to force page breaks in print output (approximate PDF pagination).
 - `js/app.js` — client-side XML → HTML transform
 - `data/biden.xml` — sample source XML (swap with any Akoma Ntoso XML using the same structure)
 - `data/pagemap.json` — optional sidecar mapping `{page, eid}` for PDF-style page markers
+
+## Build a daily speaker dataset
+
+`scripts/build_daily_speakers.py` reads cached Akoma Ntoso XML and writes one
+JSON Lines record for each person who spoke on each sitting day. The stable
+`member_uri` from `TLCPerson/@href` is included as the preferred join key for
+member and constituency data; display names are not used as identifiers.
+
+```bash
+python3 scripts/build_daily_speakers.py data/xml/dail \
+  --output data/daily-speakers.jsonl \
+  --site-base https://example.com/digital-volume/
+```
+
+Each record includes the date, member URI and name, speech count, first and
+last recorded time, roles, section headings/topics, speech IDs, official
+Oireachtas speech links, and an optional Digital Volume day link. The output is
+sorted by date and speaker, so it can be loaded directly or filtered into a
+recent-speakers resource for Constituency Insights.
